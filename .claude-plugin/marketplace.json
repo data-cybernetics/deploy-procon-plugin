@@ -1,0 +1,14 @@
+{
+  "name": "gramiangrid",
+  "owner": {
+    "name": "data-cybernetics"
+  },
+  "plugins": [
+    {
+      "name": "deploy-procon",
+      "source": ".",
+      "version": "1.0.0",
+      "description": "Deploy a pinexq ProCon: bump version, relock, build/push/register, deprecate old versions."
+    }
+  ]
+}

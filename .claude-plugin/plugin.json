@@ -1,0 +1,8 @@
+{
+  "name": "deploy-procon",
+  "description": "Deploy a pinexq ProCon from the current repo: bump the version, refresh the lockfile, build/push/register the functions via the pinexq CLI, then deprecate the previous versions via pinexq-client. Repo-agnostic, driven by pinexq.toml + pyproject.toml.",
+  "version": "1.0.0",
+  "author": {
+    "name": "data-cybernetics"
+  }
+}
