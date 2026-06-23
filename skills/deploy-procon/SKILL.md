@@ -35,6 +35,20 @@ S="${CLAUDE_PLUGIN_ROOT}/skills/deploy-procon"
 - Confirm credentials: `PINEXQ_API_KEY` (+ `PINEXQ_BASE_URL`) in the environment
   or a repo-root `.env`. If missing, STOP and ask the user to set them.
 - `git status`: if dirty, mention it; let the user decide whether to continue.
+- **Pick the entrypoint to deploy.** A repo can carry several entrypoint Steps
+  in separate modules (e.g. a battery `procon/main.py` and a hydrogen
+  `procon/hydrogen_main.py`), each registering its own family of function images
+  that coexist on the cluster. List them:
+  ```bash
+  uv run python "$S/scripts/list_entrypoints.py"   # <relpath>\t<ClassName>, default tagged
+  ```
+  - **One entrypoint** → use it (the `pinexq.toml` default); continue.
+  - **More than one** → **ASK THE USER which one to deploy** — this is the
+    interface; do not silently default and do not make them set an env var by
+    hand. Present the discovered modules as the options. Then, for the chosen
+    one, `export PROCON_ENTRYPOINT="<its relpath>"` so every later step (version
+    mirror, preview, build/register, deprecate) targets it. Leave
+    `PROCON_ENTRYPOINT` unset only when the choice is the toml default.
 
 ### 2. Choose and bump the version
 ```bash
@@ -63,9 +77,24 @@ it to the user and confirm the versions are the new ones.
 
 ### 5. Deploy (build + push + register)
 Load credentials from `.env` and forward any private-index credentials as
-**BuildKit secrets**, then deploy:
+**BuildKit secrets**, then deploy. Run this as a **single** Bash invocation so
+the `PROCON_ENTRYPOINT` swap restores `pinexq.toml` even if the deploy fails:
 ```bash
 set -a; [ -f .env ] && . ./.env; set +a   # PINEXQ_API_KEY + any UV_INDEX_* creds
+
+# PROCON_ENTRYPOINT: pinexq deploy reads pinexq.toml's [project].entrypoint, so
+# temporarily point it at the override for the build, then always restore. No-op
+# when PROCON_ENTRYPOINT is unset.
+if [ -n "${PROCON_ENTRYPOINT:-}" ]; then
+  cp pinexq.toml pinexq.toml.deploybak
+  trap 'mv -f pinexq.toml.deploybak pinexq.toml' EXIT
+  python3 - "$PROCON_ENTRYPOINT" <<'PY'
+import re, sys, pathlib
+p = pathlib.Path("pinexq.toml")
+p.write_text(re.sub(r'(?m)^(\s*entrypoint\s*=\s*).*$', r'\1"%s"' % sys.argv[1], p.read_text(), count=1))
+PY
+fi
+
 # forward every UV_INDEX_* var as a build secret (id = lowercased var name)
 args=()
 while IFS= read -r v; do
@@ -77,6 +106,9 @@ uvx --from pinexq-cli --prerelease=allow pinexq deploy --verbose "${args[@]}"
 - Endpoint comes from `pinexq.toml`; API key from `PINEXQ_API_KEY`. Builds and
   pushes an OCI image (needs Docker + push access) — takes a while. Scope with
   repeated `-f <name>`.
+- **Different entrypoint?** Export `PROCON_ENTRYPOINT=<module path>` before this
+  step (see Notes) — the swap above points the build at it and restores the toml
+  on exit. The same env var already steers steps 2/4/6 directly.
 - **Never echo the secret values.** Load `.env` into the env and pass vars by
   *name* (`--secret id=...,env=VAR`); BuildKit mounts them only during `uv sync`
   (never in an image layer or `docker history`). Ensure `.env` is in
@@ -111,6 +143,15 @@ Never commit without the user asking.
 - **Entrypoint discovery.** Scripts import the module at `pinexq.toml`'s
   `entrypoint` and pick the most-derived `pinexq.procon.step.Step` subclass
   defined there. If ambiguous, set `PROCON_STEP=<ClassName>`.
+- **Multiple entrypoints (the interface is a question).** `list_entrypoints.py`
+  finds every entrypoint module (an `if __name__ == "__main__":` block serving a
+  Step) by `ast` inspection — no imports. When it finds more than one, the skill
+  **asks the user which to deploy** (step 1) rather than defaulting or making
+  them set anything by hand. `PROCON_ENTRYPOINT` is just the carrier for that
+  answer: exported once, it overrides `pinexq.toml`'s `[project].entrypoint` for
+  the whole run via `resolved_entrypoint` (steps 2/4/6) and via step 5's
+  temporary-toml swap (the `pinexq deploy` CLI reads the toml). Combine with
+  `PROCON_STEP` only if the chosen module itself defines more than one Step.
 - **Version source.** `pyproject.toml` is the source of truth. The optional
   `versions.py` mirror is a convention some projects use to stamp the version
   onto functions at runtime; projects that prefer a single source can read

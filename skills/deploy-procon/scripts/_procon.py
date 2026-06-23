@@ -31,24 +31,40 @@ def project_name(root: Path) -> str:
     return pinexq_config(root).get("project", {}).get("name", root.name)
 
 
+def resolved_entrypoint(root: Path) -> str:
+    """The entrypoint module path the skill should act on, relative to ``root``.
+
+    ``PROCON_ENTRYPOINT`` overrides ``pinexq.toml``'s ``[project].entrypoint``
+    when set, so a repo with several entrypoint Steps (e.g. a battery
+    ``procon/main.py`` and a hydrogen ``procon/hydrogen_main.py``) can be
+    deployed without hand-editing the toml — set ``PROCON_ENTRYPOINT`` and every
+    skill step (version mirror, preview, deprecate, and the build/register step
+    via the temporary-toml swap in SKILL.md step 5) targets that module.
+    """
+    override = os.environ.get("PROCON_ENTRYPOINT")
+    if override:
+        return override
+    return pinexq_config(root).get("project", {}).get("entrypoint", "")
+
+
 def entrypoint_dir(root: Path) -> Path:
     """Directory containing the entrypoint module (e.g. .../procon)."""
-    entry = pinexq_config(root).get("project", {}).get("entrypoint", "")
-    return (root / entry).resolve().parent
+    return (root / resolved_entrypoint(root)).resolve().parent
 
 
 def load_entrypoint_step(root: Path):
-    """Import the Step declared as ``pinexq.toml``'s entrypoint and return an
-    instance built with ``use_cli=False``.
+    """Import the Step declared as the entrypoint and return an instance built
+    with ``use_cli=False``.
 
+    The entrypoint module is ``pinexq.toml``'s ``[project].entrypoint``, or the
+    ``PROCON_ENTRYPOINT`` override when set (see :func:`resolved_entrypoint`).
     The deployed class is taken to be the most-derived ``pinexq.procon.step.Step``
-    subclass *defined in* the entrypoint module. If that's ambiguous, set
+    subclass *defined in* that module. If that's ambiguous, set
     ``PROCON_STEP=<ClassName>`` to disambiguate.
     """
-    cfg = pinexq_config(root)
-    entry = cfg.get("project", {}).get("entrypoint")
+    entry = resolved_entrypoint(root)
     if not entry:
-        sys.exit("error: pinexq.toml has no [project].entrypoint")
+        sys.exit("error: no entrypoint (set pinexq.toml [project].entrypoint or PROCON_ENTRYPOINT)")
     entry_path = (root / entry).resolve()
     if not entry_path.is_file():
         sys.exit(f"error: entrypoint module not found: {entry_path}")
