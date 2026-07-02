@@ -3,8 +3,9 @@ name: deploy-procon
 description: >-
   Deploy a pinexq ProCon from the current repo. Bumps the project version,
   refreshes the lockfile, builds/pushes/registers the functions via the pinexq
-  CLI, then deprecates the previous versions of each deployed function via
-  pinexq-client. Repo-agnostic: driven by the project's pinexq.toml + pyproject.toml.
+  CLI, deprecates the previous versions of each deployed function via
+  pinexq-client, and tags each registered processing step with its source
+  (GitHash=..., Repository=...). Repo-agnostic: driven by the project's pinexq.toml + pyproject.toml.
   Use when asked to deploy, release, publish, or ship a ProCon / its functions,
   or to "bump and deploy".
 ---
@@ -138,6 +139,21 @@ Scoped to this project's own function names; idempotent.
 ### 7. Offer to commit
 Offer to commit the version bump (`pyproject.toml`, any mirror, `uv.lock`).
 Never commit without the user asking.
+
+### 8. Tag the registered steps with the git hash and repo name
+After the commit decision, stamp every just-registered processing step with
+`GitHash=<sha>` and `Repository=<name>` tags so the deployed code is traceable
+to its source:
+```bash
+uv run python "$S/scripts/tag_git_hash.py"
+```
+Runs after step 7 on purpose: once the bump is committed, HEAD is the commit
+that contains the deployed version. If the user declined to commit (or the tree
+is otherwise dirty), the hash gets a `-dirty` suffix — mention that. The repo
+name comes from the `origin` remote URL (fallback: the repo directory name).
+Preserves the steps' other tags, replaces any previous `GitHash=`/`Repository=`
+tags, and is idempotent; scoped to this project's own function names at their
+current versions.
 
 ## Notes
 - **Entrypoint discovery.** Scripts import the module at `pinexq.toml`'s
